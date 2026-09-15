@@ -453,7 +453,12 @@ async function obterEntradaJsonCeap(ano: string): Promise<ReadableStream<Uint8Ar
           }
         })
 
-        return source.pipeThrough(new DecompressionStream('deflate-raw'))
+        //return source.pipeThrough(new DecompressionStream('deflate-raw'))
+        const decompressor =
+          new DecompressionStream('deflate-raw') as unknown as TransformStream<Uint8Array, Uint8Array>
+
+        return source.pipeThrough(decompressor)
+
       } catch (err) {
         // Se o servidor não suporta Range, tentamos o ZIP completo somente
         // quando o arquivo é pequeno o bastante para o limite de segurança.
@@ -503,7 +508,11 @@ async function obterEntradaJsonCeap(ano: string): Promise<ReadableStream<Uint8Ar
     }
   })
 
-  return source.pipeThrough(new DecompressionStream('deflate-raw'))
+  //return source.pipeThrough(new DecompressionStream('deflate-raw'))
+  const decompressor =
+    new DecompressionStream('deflate-raw') as unknown as TransformStream<Uint8Array, Uint8Array>
+
+  return source.pipeThrough(decompressor)  
 }
 
 /**
@@ -660,6 +669,7 @@ app.use('/api/*', cors())
 
 //app.use('/static/*', serveStatic({ manifest: (globalThis as any).__STATIC_CONTENT_MANIFEST }))
 app.use('/static/*', serveStatic({ root: './public' }))
+app.use('/favicon.svg', serveStatic({ root: './public' }))
 
 /* ============================ CÂMARA DOS DEPUTADOS ========================= */
 
@@ -1350,6 +1360,7 @@ app.get('/', (c) => c.html(`
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg">
         <title>Portal Legislativo Brasileiro</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
