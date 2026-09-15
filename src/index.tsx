@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { serveStatic } from '@hono/node-server/serve-static'
 //import { serveStatic } from 'hono/cloudflare-workers'
 import { XMLParser } from 'fast-xml-parser'
 
@@ -658,6 +659,7 @@ async function buscarCeapDeputado(
 app.use('/api/*', cors())
 
 //app.use('/static/*', serveStatic({ manifest: (globalThis as any).__STATIC_CONTENT_MANIFEST }))
+app.use('/static/*', serveStatic({ root: './public' }))
 
 /* ============================ CÂMARA DOS DEPUTADOS ========================= */
 
