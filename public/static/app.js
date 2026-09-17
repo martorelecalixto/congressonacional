@@ -249,6 +249,277 @@ function changeTab(tabName) {
 let ultimoDeputadoNome = '';
 const deputadosPorId = {};
 
+async function buscarDeputados(paginaSolicitada = 1) {
+  const ns = 'deputados';
+  const seq = beginReq(ns);
+
+  const loading = $('#loading-deputados');
+  const results = $('#results-deputados');
+
+  const pagina = Math.max(1, Number(paginaSolicitada) || 1);
+
+  const params = {
+    nome: $('#deputado-nome')?.value.trim(),
+    partido: $('#deputado-partido')?.value.trim().toUpperCase(),
+    uf: $('#deputado-uf')?.value.trim().toUpperCase(),
+    pagina: pagina,
+    itens: 100
+  };
+
+  setLoading(loading, true);
+  results.innerHTML = '';
+
+  try {
+    const data = await apiGet('/camara/deputados', params);
+
+    if (isStale(ns, seq)) return;
+
+    const deputados = Array.isArray(data?.dados)
+      ? data.dados
+      : [];
+
+    deputados.forEach((d) => {
+      if (d?.id != null) {
+        deputadosPorId[d.id] = d.nome;
+      }
+    });
+
+    setLoading(loading, false);
+
+    if (!deputados.length) {
+      hideChart('chart-deputados-wrap');
+
+      return renderMessage(
+        results,
+        'empty',
+        'Nenhum deputado encontrado'
+      );
+    }
+
+    /*
+     * Informações retornadas pelo backend.
+     */
+    const paginaAtual = Number(data?.pagina ?? pagina);
+    const totalPaginas = Number(data?.totalPaginas ?? 1);
+    const total = Number(data?.total ?? deputados.length);
+
+    const temAnterior =
+      data?.temAnterior === true ||
+      paginaAtual > 1;
+
+    const temProxima =
+      data?.temProxima === true ||
+      paginaAtual < totalPaginas;
+
+    /*
+     * Monta os cards dos deputados.
+     */
+    const lista = deputados.map((dep) => `
+      <div class="result-item bg-white p-4 rounded-xl border border-gray-200">
+
+        <div class="flex items-start justify-between gap-4">
+
+          <div class="flex items-center space-x-4 min-w-0">
+
+            <img
+              src="${escapeHtml(dep.urlFoto || '')}"
+              alt="${escapeHtml(dep.nome || '')}"
+              class="w-16 h-16 rounded-full object-cover bg-gray-100 shrink-0"
+              onerror="this.style.visibility='hidden'"
+            >
+
+            <div class="min-w-0">
+
+              <h3 class="font-semibold text-lg">
+                ${escapeHtml(dep.nome || 'Nome não informado')}
+              </h3>
+
+              <p class="text-sm text-gray-600 mt-1">
+
+                <span class="inline-block bg-blue-100 text-blue-800 px-2 py-0.5 rounded mr-2">
+                  ${escapeHtml(dep.siglaPartido || '—')}
+                </span>
+
+                <span class="inline-block bg-gray-100 text-gray-800 px-2 py-0.5 rounded">
+                  ${escapeHtml(dep.siglaUf || '—')}
+                </span>
+
+              </p>
+
+              <p class="text-xs text-gray-500 mt-1">
+                ID: ${dep.id}
+                ·
+                ${escapeHtml(dep.email || 'email não informado')}
+              </p>
+
+            </div>
+
+          </div>
+
+          <div class="flex flex-col gap-2 shrink-0">
+
+            <button
+              onclick="verDespesasDeputado(${dep.id}, this.dataset.nome)"
+              data-nome="${escapeHtml(dep.nome || '')}"
+              class="text-xs bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700"
+            >
+              <i class="fas fa-receipt mr-1"></i>
+              Despesas
+            </button>
+
+            <button
+              onclick="verDetalheDeputado(${dep.id})"
+              class="text-xs border border-gray-300 px-3 py-2 rounded-lg hover:bg-gray-50"
+            >
+              <i class="fas fa-id-card mr-1"></i>
+              Detalhes
+            </button>
+
+            <button
+              onclick="copiar(${dep.id})"
+              class="text-xs border border-gray-300 px-3 py-2 rounded-lg hover:bg-gray-50"
+            >
+              <i class="fas fa-copy mr-1"></i>
+              Copiar ID
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+    `).join('');
+
+    /*
+     * Contagem por partido.
+     */
+    const contagem = {};
+
+    deputados.forEach((d) => {
+      const partido = d.siglaPartido || '—';
+
+      contagem[partido] =
+        (contagem[partido] || 0) + 1;
+    });
+
+    const top = Object.entries(contagem)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+
+    /*
+     * Monta a paginação.
+     */
+    const paginacao = `
+      <div class="mt-6 mb-4 p-4 bg-white border border-gray-200 rounded-xl">
+
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
+
+          <div class="text-sm text-gray-600">
+            <i class="fas fa-users mr-2 text-blue-600"></i>
+
+            <strong>${deputados.length}</strong>
+            deputado(s) exibido(s)
+
+            ${
+              total > deputados.length
+                ? ` de <strong>${total}</strong> resultado(s)`
+                : ''
+            }
+
+          </div>
+
+          <div class="flex items-center gap-2">
+
+            <button
+              type="button"
+              onclick="buscarDeputados(${paginaAtual - 1})"
+              ${!temAnterior ? 'disabled' : ''}
+              class="
+                px-3 py-2 rounded-lg border text-sm
+                ${temAnterior
+                  ? 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50 cursor-pointer'
+                  : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                }
+              "
+            >
+              <i class="fas fa-chevron-left mr-1"></i>
+              Anterior
+            </button>
+
+            <span class="px-4 py-2 text-sm font-medium text-gray-700">
+              Página ${paginaAtual} de ${totalPaginas}
+            </span>
+
+            <button
+              type="button"
+              onclick="buscarDeputados(${paginaAtual + 1})"
+              ${!temProxima ? 'disabled' : ''}
+              class="
+                px-3 py-2 rounded-lg border text-sm
+                ${temProxima
+                  ? 'border-orange-300 bg-orange-600 text-white hover:bg-orange-700 cursor-pointer'
+                  : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                }
+              "
+            >
+              Próxima
+              <i class="fas fa-chevron-right ml-1"></i>
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+    `;
+
+    /*
+     * Exibe resultados + paginação.
+     */
+    results.innerHTML = paginacao + lista;
+
+    /*
+     * Renderiza o gráfico.
+     */
+    if (!top.length) {
+      hideChart('chart-deputados-wrap');
+    } else {
+      renderChart(
+        'chart-deputados-wrap',
+        'chart-deputados',
+        barConfig(
+          top.map(([partido]) => partido),
+          top.map(([, quantidade]) => quantidade),
+          'Deputados por partido',
+          '#2563eb'
+        )
+      );
+    }
+
+  } catch (err) {
+
+    if (isStale(ns, seq)) return;
+
+    setLoading(loading, false);
+
+    console.error('buscarDeputados:', err);
+
+    const mensagem =
+      err instanceof Error
+        ? err.message
+        : String(err);
+
+    renderMessage(
+      results,
+      'error',
+      'Erro ao buscar deputados: ' + escapeHtml(mensagem)
+    );
+  }
+}
+
+
+
+/*versao 20290917-1513 (funcionando)
 async function buscarDeputados() {
   const ns = 'deputados';
   const seq = beginReq(ns);
@@ -321,6 +592,8 @@ async function buscarDeputados() {
     renderMessage(results, 'error', 'Erro ao buscar deputados: ' + escapeHtml(err.message));
   }
 }
+*/
+
 
 /** Modal com dados cadastrais do deputado (gabinete, telefone etc.). */
 async function verDetalheDeputado(id) {
@@ -705,443 +978,6 @@ function despesasVisiveis() {
   else lista.sort((a, b) => String(b.dataDocumento || '').localeCompare(String(a.dataDocumento || '')));
   return lista;
 }
-
-/*VERSAO ORIGINAL
-function renderDespesas(results) {
-  const itens = despesasState.itens;
-  const visiveis = despesasVisiveis();
-  const total = visiveis.reduce((s, d) => s + Number(d.valorDocumento || 0), 0);
-  const liquido = visiveis.reduce((s, d) => s + Number(d.valorLiquido || 0), 0);
-  const maior = visiveis.reduce((m, d) => Math.max(m, Number(d.valorDocumento || 0)), 0);
-  const media = visiveis.length ? liquido / visiveis.length : 0;
-  const temMais = despesasState.pagina < despesasState.ultimaPagina;
-  const filtrado = visiveis.length !== itens.length;
-  const badge = (txt) =>
-    `<span class="inline-block bg-blue-100 text-blue-800 px-2 py-0.5 rounded mr-2 mb-1">${escapeHtml(txt)}</span>`;
-  const nomeExibicao = ultimoDeputadoNome || deputadosPorId[despesasState.codigo] || '';
-
-  // NOVO: cards de métricas + ações, antes da lista
-  const topo = `
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-      <div class="bg-white border border-gray-200 rounded-xl p-3">
-        <p class="text-xs text-gray-500"><i class="fas fa-file-invoice mr-1"></i>Documentos</p>
-        <p class="text-lg font-bold text-gray-800">${visiveis.length}${filtrado ? `<span class="text-xs font-normal text-gray-400"> de ${itens.length}</span>` : ''}</p>
-      </div>
-      <div class="bg-white border border-gray-200 rounded-xl p-3">
-        <p class="text-xs text-gray-500"><i class="fas fa-wallet mr-1"></i>Total líquido</p>
-        <p class="text-lg font-bold text-blue-700">${fmtBRL(liquido)}</p>
-      </div>
-      <div class="bg-white border border-gray-200 rounded-xl p-3">
-        <p class="text-xs text-gray-500"><i class="fas fa-divide mr-1"></i>Média por documento</p>
-        <p class="text-lg font-bold text-gray-800">${fmtBRL(media)}</p>
-      </div>
-      <div class="bg-white border border-gray-200 rounded-xl p-3">
-        <p class="text-xs text-gray-500"><i class="fas fa-arrow-trend-up mr-1"></i>Maior despesa</p>
-        <p class="text-lg font-bold text-gray-800">${fmtBRL(maior)}</p>
-      </div>
-    </div>
-    <div class="bg-white border border-gray-200 rounded-xl p-4 mb-4 flex flex-wrap items-center gap-3">
-      <p class="text-sm text-gray-600">
-        <i class="fas fa-calculator mr-1"></i>
-        Total documento: <strong>${fmtBRL(total)}</strong>
-        ${nomeExibicao ? ` — <strong>${escapeHtml(nomeExibicao)}</strong>` : ` — deputado ${escapeHtml(despesasState.codigo || '')}`}
-        ${filtrado ? `<span class="text-xs text-gray-400">(valores refletem o filtro)</span>` : ''}
-      </p>
-      <div class="flex gap-2 ml-auto items-center flex-wrap justify-end">
-        <button onclick="exportarDespesasCSV()" class="text-xs border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50">
-          <i class="fas fa-file-csv mr-1"></i>Exportar CSV${filtrado ? ' (filtrado)' : ''}
-        </button>
-        <a href="https://www.camara.leg.br/deputados/${encodeURIComponent(despesasState.codigo || '')}" target="_blank" rel="noopener"
-           class="text-xs border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50">
-          <i class="fas fa-external-link-alt mr-1"></i>Página oficial
-        </a>
-        ${temMais ? `
-        <div class="flex flex-col items-end gap-1">
-          <div class="w-40 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-            <div id="ceap-progress" class="h-full bg-blue-600 rounded-full transition-all duration-300" style="width:0%"></div>
-          </div>
-          <p id="ceap-progress-label" class="text-[11px] text-gray-400 leading-none m-0"></p>
-        </div>
-        <button id="btn-carregar-todas" onclick="carregarTodasDespesas()"
-                class="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                ${despesasState.carregandoTudo ? 'disabled' : ''}>
-          <i class="fas fa-download mr-1"></i>${despesasState.carregandoTudo ? 'Carregando…' : `Carregar todas${despesasState.ultimaPagina !== Infinity ? ` (${despesasState.ultimaPagina} págs.)` : ''}`}
-        </button>` : ''}
-      </div>
-    </div>`;
-
-  if (!visiveis.length) {
-    results.innerHTML = topo + `
-      <div class="text-center py-6 text-gray-500 bg-white rounded-xl border border-gray-200">
-        <i class="fas fa-filter text-2xl mb-2 block"></i>Nenhum documento corresponde ao filtro.
-      </div>`;
-    return;
-  }
-
-  results.innerHTML = topo + visiveis.map((d) => `
-    <div class="result-item bg-white p-4 rounded-xl border border-gray-200">
-      <h3 class="font-semibold text-lg">${String(d.mes ?? '—').padStart(2, '0')}/${d.ano ?? '—'}</h3>
-      <p class="text-sm text-gray-600 mt-1">${badge(d.tipoDespesa || 'Tipo não informado')}</p>
-      <p class="text-sm text-gray-600">${badge(d.tipoDocumento || 'Doc.')}${badge('Nº ' + (d.numDocumento ?? '—'))}${badge('Data: ' + fmtDateBR(d.dataDocumento))}</p>
-      <p class="text-sm text-gray-600 mt-1">
-        <span class="inline-block bg-gray-100 px-2 py-0.5 rounded mr-2 mb-1">CNPJ/CPF: ${escapeHtml(d.cnpjCpfFornecedor || '—')}</span>
-        <span class="inline-block bg-gray-100 px-2 py-0.5 rounded mb-1">Fornecedor: ${escapeHtml(d.nomeFornecedor || '—')}</span>
-      </p>
-      <p class="text-xs text-gray-500 mt-1">Valor: ${fmtBRL(d.valorDocumento)} · Líquido: ${fmtBRL(d.valorLiquido)}</p>
-    </div>`).join('') + `
-
-    ${temMais ? `
-      <div class="text-center mt-4">
-        <button onclick="buscarDespesasDeputados(${despesasState.pagina + 1})"
-                class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
-          <i class="fas fa-plus mr-1"></i>Carregar mais (pág. ${despesasState.pagina + 1}${despesasState.ultimaPagina === Infinity ? '' : ' de ' + despesasState.ultimaPagina})
-        </button>
-      </div>` : (itens.length > 50 ? `
-      <p class="text-center text-xs text-gray-400 mt-4"><i class="fas fa-flag-checkered mr-1"></i>Todas as ${itens.length} despesas do período foram carregadas.</p>` : '')}`;
-}
-*/
-
-/*
-function renderDespesas(results) {
-  const itens = despesasState.itens;
-  const visiveis = despesasVisiveis();
-
-  const total = visiveis.reduce(
-    (s, d) => s + Number(d.valorDocumento || 0),
-    0
-  );
-
-  const liquido = visiveis.reduce(
-    (s, d) => s + Number(d.valorLiquido || 0),
-    0
-  );
-
-  const maior = visiveis.reduce(
-    (m, d) => Math.max(m, Number(d.valorDocumento || 0)),
-    0
-  );
-
-  const media = visiveis.length ? liquido / visiveis.length : 0;
-  const temMais = despesasState.pagina < despesasState.ultimaPagina;
-  const filtrado = visiveis.length !== itens.length;
-
-  const badge = (txt) =>
-    `<span class="inline-block bg-blue-100 text-blue-800 px-2 py-0.5 rounded mr-2 mb-1">${escapeHtml(txt)}</span>`;
-
-  const nomeExibicao =
-    ultimoDeputadoNome ||
-    deputadosPorId[despesasState.codigo] ||
-    '';
-
-  // ---------------------------------------------------------
-  // TOPO / RESUMO
-  // ---------------------------------------------------------
-  const topo = `
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-
-      <div class="bg-white border border-gray-200 rounded-xl p-3">
-        <p class="text-xs text-gray-500">
-          <i class="fas fa-file-invoice mr-1"></i>Documentos
-        </p>
-        <p class="text-lg font-bold text-gray-800">
-          ${visiveis.length}
-          ${filtrado
-            ? `<span class="text-xs font-normal text-gray-400"> de ${itens.length}</span>`
-            : ''}
-        </p>
-      </div>
-
-      <div class="bg-white border border-gray-200 rounded-xl p-3">
-        <p class="text-xs text-gray-500">
-          <i class="fas fa-wallet mr-1"></i>Total líquido
-        </p>
-        <p class="text-lg font-bold text-blue-700">
-          ${fmtBRL(liquido)}
-        </p>
-      </div>
-
-      <div class="bg-white border border-gray-200 rounded-xl p-3">
-        <p class="text-xs text-gray-500">
-          <i class="fas fa-divide mr-1"></i>Média por documento
-        </p>
-        <p class="text-lg font-bold text-gray-800">
-          ${fmtBRL(media)}
-        </p>
-      </div>
-
-      <div class="bg-white border border-gray-200 rounded-xl p-3">
-        <p class="text-xs text-gray-500">
-          <i class="fas fa-arrow-trend-up mr-1"></i>Maior despesa
-        </p>
-        <p class="text-lg font-bold text-gray-800">
-          ${fmtBRL(maior)}
-        </p>
-      </div>
-
-    </div>
-
-    <div class="bg-white border border-gray-200 rounded-xl p-4 mb-4 flex flex-wrap items-center gap-3">
-
-      <p class="text-sm text-gray-600">
-        <i class="fas fa-calculator mr-1"></i>
-        Total documento:
-        <strong>${fmtBRL(total)}</strong>
-
-        ${
-          nomeExibicao
-            ? ` — <strong>${escapeHtml(nomeExibicao)}</strong>`
-            : ` — deputado ${escapeHtml(despesasState.codigo || '')}`
-        }
-
-        ${
-          filtrado
-            ? `<span class="text-xs text-gray-400">(valores refletem o filtro)</span>`
-            : ''
-        }
-      </p>
-
-      <div class="flex gap-2 ml-auto items-center flex-wrap justify-end">
-
-        <button
-          onclick="exportarDespesasCSV()"
-          class="text-xs border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50">
-          <i class="fas fa-file-csv mr-1"></i>
-          Exportar CSV${filtrado ? ' (filtrado)' : ''}
-        </button>
-
-        <a
-          href="https://www.camara.leg.br/deputados/${encodeURIComponent(despesasState.codigo || '')}"
-          target="_blank"
-          rel="noopener"
-          class="text-xs border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50">
-          <i class="fas fa-external-link-alt mr-1"></i>
-          Página oficial
-        </a>
-
-        ${
-          temMais
-            ? `
-              <div class="flex flex-col items-end gap-1">
-                <div class="w-40 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    id="ceap-progress"
-                    class="h-full bg-blue-600 rounded-full transition-all duration-300"
-                    style="width:0%">
-                  </div>
-                </div>
-
-                <p
-                  id="ceap-progress-label"
-                  class="text-[11px] text-gray-400 leading-none m-0">
-                </p>
-              </div>
-
-              <button
-                id="btn-carregar-todas"
-                onclick="carregarTodasDespesas()"
-                class="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                ${despesasState.carregandoTudo ? 'disabled' : ''}>
-                <i class="fas fa-download mr-1"></i>
-                ${
-                  despesasState.carregandoTudo
-                    ? 'Carregando…'
-                    : `Carregar todas${
-                        despesasState.ultimaPagina !== Infinity
-                          ? ` (${despesasState.ultimaPagina} págs.)`
-                          : ''
-                      }`
-                }
-              </button>
-            `
-            : ''
-        }
-
-      </div>
-    </div>
-  `;
-
-  // ---------------------------------------------------------
-  // NENHUM RESULTADO APÓS FILTRO
-  // ---------------------------------------------------------
-  if (!visiveis.length) {
-    results.innerHTML =
-      topo +
-      `
-        <div class="text-center py-6 text-gray-500 bg-white rounded-xl border border-gray-200">
-          <i class="fas fa-filter text-2xl mb-2 block"></i>
-          Nenhum documento corresponde ao filtro.
-        </div>
-      `;
-
-    return;
-  }
-
-  // ---------------------------------------------------------
-  // LISTA DE DESPESAS
-  // ---------------------------------------------------------
-  results.innerHTML =
-    topo +
-
-    visiveis.map((d) => {
-
-      // Dados oficiais vindos do CEAP
-      const descricao =
-        d.descricao ||
-        'Tipo não informado';
-
-      const especificacao =
-        d.descricaoEspecificacao ||
-        '';
-
-      const tipoDocumento =
-        d.tipoDocumento ||
-        'Documento';
-
-      const numeroDocumento =
-        d.numero ??
-        '—';
-
-      const dataEmissao =
-        d.dataEmissao ||
-        '';
-
-      const cnpjCpf =
-        d.cnpjCPF ||
-        '—';
-
-      const fornecedor =
-        d.fornecedor ||
-        '—';
-
-      const urlDocumento =
-        d.urlDocumento ||
-        '';
-
-      return `
-        <div class="result-item bg-white p-4 rounded-xl border border-gray-200 mb-3">
-
-          <!-- MÊS / ANO -->
-          <h3 class="font-semibold text-lg">
-            ${String(d.mes ?? '—').padStart(2, '0')}/${d.ano ?? '—'}
-          </h3>
-
-          <!-- TIPO DA DESPESA -->
-          <p class="text-sm text-gray-600 mt-1">
-            ${badge(descricao)}
-          </p>
-
-          ${
-            especificacao
-              ? `
-                <p class="text-xs text-gray-500 mt-1">
-                  <strong>Especificação:</strong>
-                  ${escapeHtml(especificacao)}
-                </p>
-              `
-              : ''
-          }
-
-          <!-- DOCUMENTO -->
-          <p class="text-sm text-gray-600 mt-2">
-
-            ${badge(tipoDocumento)}
-
-            ${badge('Nº ' + numeroDocumento)}
-
-            ${badge(
-              'Data: ' +
-              (dataEmissao
-                ? fmtDateBR(dataEmissao)
-                : '—')
-            )}
-
-          </p>
-
-          <!-- FORNECEDOR -->
-          <p class="text-sm text-gray-600 mt-1">
-
-            <span class="inline-block bg-gray-100 px-2 py-0.5 rounded mr-2 mb-1">
-              CNPJ/CPF:
-              ${escapeHtml(cnpjCpf)}
-            </span>
-
-            <span class="inline-block bg-gray-100 px-2 py-0.5 rounded mb-1">
-              Fornecedor:
-              ${escapeHtml(fornecedor)}
-            </span>
-
-          </p>
-
-          <!-- VALORES -->
-          <p class="text-xs text-gray-500 mt-1">
-            Valor:
-            <strong>${fmtBRL(d.valorDocumento)}</strong>
-            ·
-            Líquido:
-            <strong>${fmtBRL(d.valorLiquido)}</strong>
-          </p>
-
-          ${
-            urlDocumento
-              ? `
-                <div class="mt-3">
-                  <a
-                    href="${escapeHtml(urlDocumento)}"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="inline-flex items-center text-xs bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg hover:bg-blue-100">
-                    <i class="fas fa-file-pdf mr-1.5"></i>
-                    Ver documento oficial
-                  </a>
-                </div>
-              `
-              : ''
-          }
-
-        </div>
-      `;
-    }).join('') +
-
-    // -------------------------------------------------------
-    // PAGINAÇÃO
-    // -------------------------------------------------------
-    `
-      ${
-        temMais
-          ? `
-            <div class="text-center mt-4">
-
-              <button
-                onclick="buscarDespesasDeputados(${despesasState.pagina + 1})"
-                class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
-
-                <i class="fas fa-plus mr-1"></i>
-
-                Carregar mais
-                (pág. ${despesasState.pagina + 1}${
-                  despesasState.ultimaPagina === Infinity
-                    ? ''
-                    : ' de ' + despesasState.ultimaPagina
-                })
-
-              </button>
-
-            </div>
-          `
-          : (
-              itens.length > 50
-                ? `
-                  <p class="text-center text-xs text-gray-400 mt-4">
-                    <i class="fas fa-flag-checkered mr-1"></i>
-                    Todas as ${itens.length} despesas do período foram carregadas.
-                  </p>
-                `
-                : ''
-            )
-      }
-    `;
-}
-*/
 
 
 function renderDespesas(results) {
@@ -1792,16 +1628,6 @@ function renderVotacoes(results) {
       </div>` : ''}`;
 }
 
-/*
-
-        <button onclick="verVotos(this.dataset.id, this.dataset.titulo)"
-                data-id="${escapeHtml(String(vot.id || ''))}"
-                data-titulo="${escapeHtml(vot.titulo || 'Votação')}"
-                class="ml-2 text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700">
-          <i class="fas fa-chart-pie mr-1"></i>Ver votos
-        </button>
-
-*/
 
 function exportarVotacoesCSV() {
   const linhas = votacoesFiltradas().map((v) => {
@@ -1875,414 +1701,6 @@ function renderTabelaVotos() {
   }).join('') || `<tr><td colspan="4" class="px-3 py-6 text-center text-gray-400">Nenhum voto corresponde aos filtros.</td></tr>`;
   if (contagem) contagem.textContent = `${filtrados.length} de ${votosState.votos.length} votos`;
 }
-
-/*codigo original
-async function verVotos(votacaoId, titulo) {
-  abrirModal(titulo || `Votação ${votacaoId}`,
-    `<div class="text-center py-6 text-gray-500"><i class="fas fa-spinner fa-spin text-2xl"></i><p class="mt-2">Carregando votos...</p></div>`);
-
-  try {
-    const data = await apiGet(`/camara/votacoes/${votacaoId}/votos`);
-    const votos = data.dados ?? [];
-    if (!votos.length) {
-      document.getElementById('modal-body').innerHTML =
-        `<p class="text-center text-gray-500 py-4">Nenhum voto individual disponível para esta votação.</p>`;
-      return;
-    }
-
-    votosState.titulo = titulo || `Votação ${votacaoId}`;
-    votosState.votos = votos;
-    votosState.texto = ''; votosState.tipo = ''; votosState.partido = '';
-
-    const geral = {};
-    votos.forEach((v) => { const n = normalizarVoto(v.voto); geral[n] = (geral[n] || 0) + 1; });
-
-    const porPartido = {};
-    votos.forEach((v) => {
-      const p = v.partido || '—';
-      const n = normalizarVoto(v.voto);
-      porPartido[p] ??= { Sim: 0, 'Não': 0 };
-      if (porPartido[p][n] !== undefined) porPartido[p][n]++;
-    });
-    const topPartidos = Object.entries(porPartido)
-      .sort((a, b) => (b[1].Sim + b[1]['Não']) - (a[1].Sim + a[1]['Não']))
-      .slice(0, 8);
-
-    const partidos = [...new Set(votos.map((v) => v.partido).filter(Boolean))].sort();
-    const coresVoto = { 'Sim': '#16a34a', 'Não': '#dc2626', 'Abstenção': '#f59e0b', 'Obstrução': '#7c3aed', 'Outros': '#9ca3af' };
-
-    document.getElementById('modal-body').innerHTML = `
-      <div class="flex flex-wrap gap-2 mb-4">
-        ${Object.entries(geral).map(([k, n]) =>
-          `<span class="text-xs px-2 py-1 rounded" style="background:${coresVoto[k]}22;color:${coresVoto[k]}"><strong>${k}:</strong> ${n}</span>`).join('')}
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <div class="border border-gray-200 rounded-xl p-3"><h4 class="text-sm font-semibold mb-2">Resultado geral</h4>
-          <div class="chart-box"><canvas id="chart-votos-geral"></canvas></div></div>
-        <div class="border border-gray-200 rounded-xl p-3"><h4 class="text-sm font-semibold mb-2">Sim × Não por partido (top 8)</h4>
-          <div class="chart-box"><canvas id="chart-votos-partido"></canvas></div></div>
-      </div>
-      <div class="flex flex-wrap items-center gap-2 mb-3">
-        <input type="text" id="votos-filtro" placeholder="Filtrar por deputado..."
-               class="px-3 py-1.5 border border-gray-300 rounded-lg text-xs flex-1 min-w-[160px]">
-        <select id="votos-tipo" class="px-3 py-1.5 border border-gray-300 rounded-lg text-xs">
-          <option value="">Todos os votos</option>
-          ${Object.keys(coresVoto).map((k) => `<option value="${k}">${k}</option>`).join('')}
-        </select>
-        <select id="votos-partido" class="px-3 py-1.5 border border-gray-300 rounded-lg text-xs">
-          <option value="">Todos os partidos</option>
-          ${partidos.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('')}
-        </select>
-        <span id="votos-contagem" class="text-xs text-gray-500"></span>
-        <button onclick="exportarVotosCSV()" class="text-xs border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50">
-          <i class="fas fa-file-csv mr-1"></i>Exportar CSV
-        </button>
-      </div>
-      <div class="max-h-64 overflow-y-auto border border-gray-200 rounded-xl">
-        <table class="w-full text-xs">
-          <thead class="bg-gray-50 sticky top-0">
-            <tr class="text-left text-gray-600">
-              <th class="px-3 py-2">Deputado</th><th class="px-3 py-2">Partido</th>
-              <th class="px-3 py-2">UF</th><th class="px-3 py-2">Voto</th>
-            </tr>
-          </thead>
-          <tbody id="votos-tbody"></tbody>
-        </table>
-      </div>`;
-
-    $('#votos-filtro')?.addEventListener('input', debounce((e) => {
-      votosState.texto = e.target.value; renderTabelaVotos();
-    }, 200));
-    $('#votos-tipo')?.addEventListener('change', (e) => {
-      votosState.tipo = e.target.value; renderTabelaVotos();
-    });
-    $('#votos-partido')?.addEventListener('change', (e) => {
-      votosState.partido = e.target.value; renderTabelaVotos();
-    });
-    renderTabelaVotos();
-
-    setupChartDefaults();
-    const cfg = (c) => Object.assign({}, c, { options: Object.assign({}, c.options, { maintainAspectRatio: false }) });
-
-    chartRegistry['chart-votos-geral']?.destroy();
-    chartRegistry['chart-votos-geral'] = new Chart(document.getElementById('chart-votos-geral'), cfg({
-      type: 'doughnut',
-      data: { labels: Object.keys(geral), datasets: [{ data: Object.values(geral), backgroundColor: Object.keys(geral).map((k) => coresVoto[k]), borderWidth: 1 }] },
-      options: { plugins: { legend: { position: 'bottom' } } },
-    }));
-
-    chartRegistry['chart-votos-partido']?.destroy();
-    chartRegistry['chart-votos-partido'] = new Chart(document.getElementById('chart-votos-partido'), cfg({
-      type: 'bar',
-      data: {
-        labels: topPartidos.map(([p]) => p),
-        datasets: [
-          { label: 'Sim', data: topPartidos.map(([, c]) => c.Sim), backgroundColor: '#16a34a', borderRadius: 4 },
-          { label: 'Não', data: topPartidos.map(([, c]) => c['Não']), backgroundColor: '#dc2626', borderRadius: 4 },
-        ],
-      },
-      options: { scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } } },
-    }));
-  } catch (err) {
-    console.error('verVotos:', err);
-    const body = document.getElementById('modal-body');
-    if (body) body.innerHTML = `<p class="text-center text-red-600 py-4">Erro ao carregar votos: ${escapeHtml(err.message)}</p>`;
-  }
-}
-*/
-
-/*versao funcionando
-async function verVotos(votacaoId, titulo) {
-  const id = String(votacaoId || '').trim();
-
-  if (!id) {
-    abrirModal(
-      titulo || 'Votação',
-      `<p class="text-center text-red-500 py-4">ID da votação não informado.</p>`
-    );
-    return;
-  }
-
-  abrirModal(
-    titulo || `Votação ${id}`,
-    `<div class="text-center py-6 text-gray-500">
-      <i class="fas fa-spinner fa-spin text-2xl"></i>
-      <p class="mt-2">Carregando votos...</p>
-    </div>`
-  );
-
-  try {
-    console.log('[VOTOS] ID enviado:', id);
-
-    const data = await apiGet(`/camara/votacoes/${encodeURIComponent(id)}/votos`);
-
-    console.log('[VOTOS] Resposta recebida:', data);
-
-    const votos = Array.isArray(data?.dados) ? data.dados : [];
-
-    console.log('[VOTOS] Quantidade recebida:', votos.length);
-
-    if (!votos.length) {
-      document.getElementById('modal-body').innerHTML =
-        `<div class="text-center py-6 text-gray-500">
-          <i class="fas fa-info-circle text-2xl mb-2"></i>
-          <p>Nenhum voto individual disponível para esta votação.</p>
-          <p class="text-xs mt-2 text-gray-400">
-            ID consultado: ${escapeHtml(id)}
-          </p>
-        </div>`;
-      return;
-    }
-
-    votosState.titulo = titulo || `Votação ${id}`;
-    votosState.votos = votos;
-    votosState.texto = '';
-    votosState.tipo = '';
-    votosState.partido = '';
-
-    const geral = {};
-
-    votos.forEach((v) => {
-      const n = normalizarVoto(v.voto);
-      geral[n] = (geral[n] || 0) + 1;
-    });
-
-    const porPartido = {};
-
-    votos.forEach((v) => {
-      const p = v.partido || '—';
-      const n = normalizarVoto(v.voto);
-
-      porPartido[p] ??= {
-        Sim: 0,
-        'Não': 0,
-        'Abstenção': 0,
-        'Obstrução': 0,
-        Outros: 0
-      };
-
-      if (porPartido[p][n] !== undefined) {
-        porPartido[p][n]++;
-      } else {
-        porPartido[p].Outros++;
-      }
-    });
-
-    const topPartidos = Object.entries(porPartido)
-      .sort(
-        (a, b) =>
-          Object.values(b[1]).reduce((s, n) => s + n, 0) -
-          Object.values(a[1]).reduce((s, n) => s + n, 0)
-      )
-      .slice(0, 8);
-
-    const partidos = [
-      ...new Set(
-        votos
-          .map((v) => v.partido)
-          .filter(Boolean)
-      )
-    ].sort();
-
-    const coresVoto = {
-      'Sim': '#16a34a',
-      'Não': '#dc2626',
-      'Abstenção': '#f59e0b',
-      'Obstrução': '#7c3aed',
-      'Outros': '#9ca3af'
-    };
-
-    document.getElementById('modal-body').innerHTML = `
-      <div class="flex flex-wrap gap-2 mb-4">
-        ${Object.entries(geral)
-          .map(([k, n]) => {
-            const cor = coresVoto[k] || coresVoto.Outros;
-
-            return `
-              <span class="text-xs px-2 py-1 rounded"
-                    style="background:${cor}22;color:${cor}">
-                <strong>${escapeHtml(k)}:</strong> ${n}
-              </span>
-            `;
-          })
-          .join('')}
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-
-        <div class="border border-gray-200 rounded-xl p-3">
-          <h4 class="text-sm font-semibold mb-2">Resultado geral</h4>
-          <div class="chart-box">
-            <canvas id="chart-votos-geral"></canvas>
-          </div>
-        </div>
-
-        <div class="border border-gray-200 rounded-xl p-3">
-          <h4 class="text-sm font-semibold mb-2">
-            Sim × Não por partido (top 8)
-          </h4>
-          <div class="chart-box">
-            <canvas id="chart-votos-partido"></canvas>
-          </div>
-        </div>
-
-      </div>
-
-      <div class="flex flex-wrap items-center gap-2 mb-3">
-
-        <input
-          type="text"
-          id="votos-filtro"
-          placeholder="Filtrar por deputado..."
-          class="px-3 py-1.5 border border-gray-300 rounded-lg text-xs flex-1 min-w-[160px]"
-        >
-
-        <select
-          id="votos-tipo"
-          class="px-3 py-1.5 border border-gray-300 rounded-lg text-xs"
-        >
-          <option value="">Todos os votos</option>
-          ${Object.keys(coresVoto)
-            .map((k) => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`)
-            .join('')}
-        </select>
-
-        <select
-          id="votos-partido"
-          class="px-3 py-1.5 border border-gray-300 rounded-lg text-xs"
-        >
-          <option value="">Todos os partidos</option>
-          ${partidos
-            .map(
-              (p) =>
-                `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`
-            )
-            .join('')}
-        </select>
-
-        <span
-          id="votos-contagem"
-          class="text-xs text-gray-500"
-        ></span>
-
-        <button
-          onclick="exportarVotosCSV()"
-          class="text-xs border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50"
-        >
-          <i class="fas fa-file-csv mr-1"></i>
-          Exportar CSV
-        </button>
-
-      </div>
-
-      <div class="max-h-64 overflow-y-auto border border-gray-200 rounded-xl">
-
-        <table class="w-full text-xs">
-
-          <thead class="bg-gray-50 sticky top-0">
-            <tr class="text-left text-gray-600">
-              <th class="px-3 py-2">Deputado</th>
-              <th class="px-3 py-2">Partido</th>
-              <th class="px-3 py-2">UF</th>
-              <th class="px-3 py-2">Voto</th>
-            </tr>
-          </thead>
-
-          <tbody id="votos-tbody"></tbody>
-
-        </table>
-
-      </div>
-    `;
-
-    $('#votos-filtro')?.addEventListener(
-      'input',
-      debounce((e) => {
-        votosState.texto = e.target.value;
-        renderTabelaVotos();
-      }, 200)
-    );
-
-    $('#votos-tipo')?.addEventListener('change', (e) => {
-      votosState.tipo = e.target.value;
-      renderTabelaVotos();
-    });
-
-    $('#votos-partido')?.addEventListener('change', (e) => {
-      votosState.partido = e.target.value;
-      renderTabelaVotos();
-    });
-
-    renderTabelaVotos();
-
-    setTimeout(() => {
-      const canvasGeral = document.getElementById('chart-votos-geral');
-
-      if (canvasGeral && typeof Chart !== 'undefined') {
-        new Chart(canvasGeral, {
-          type: 'doughnut',
-          data: {
-            labels: Object.keys(geral),
-            datasets: [{
-              data: Object.values(geral),
-              backgroundColor: Object.keys(geral).map(
-                (k) => coresVoto[k] || coresVoto.Outros
-              )
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false
-          }
-        });
-      }
-
-      const canvasPartido =
-        document.getElementById('chart-votos-partido');
-
-      if (canvasPartido && typeof Chart !== 'undefined') {
-        new Chart(canvasPartido, {
-          type: 'bar',
-          data: {
-            labels: topPartidos.map(([p]) => p),
-            datasets: [
-              {
-                label: 'Sim',
-                data: topPartidos.map(([, v]) => v.Sim || 0),
-                backgroundColor: '#16a34a'
-              },
-              {
-                label: 'Não',
-                data: topPartidos.map(([, v]) => v['Não'] || 0),
-                backgroundColor: '#dc2626'
-              }
-            ]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-              y: {
-                beginAtZero: true
-              }
-            }
-          }
-        });
-      }
-    }, 50);
-
-  } catch (err) {
-    console.error('[VOTOS] Erro:', err);
-
-    document.getElementById('modal-body').innerHTML =
-      `<div class="text-center py-6 text-red-600">
-        <i class="fas fa-exclamation-circle text-2xl mb-2"></i>
-        <p class="font-semibold">Erro ao carregar os votos.</p>
-        <p class="text-xs mt-2">${escapeHtml(err?.message || 'Erro desconhecido')}</p>
-      </div>`;
-  }
-}
-*/
 
 async function verVotos(votacaoId, titulo, uri = '') {
   const id = String(votacaoId ?? '').trim();

@@ -674,6 +674,207 @@ app.use('/favicon.svg', serveStatic({ root: './public' }))
 /* ============================ CÂMARA DOS DEPUTADOS ========================= */
 
 // Lista de deputados — repassa nome, partido, uf, pagina e itens
+// Lista de deputados — repassa nome, partido, uf, pagina e itens
+interface CamaraDeputado {
+  id: number
+  nome: string
+  siglaPartido?: string
+  siglaUf?: string
+  urlFoto?: string
+  email?: string
+  uri?: string
+}
+
+interface CamaraLink {
+  rel: string
+  href: string
+  type?: string
+}
+
+interface CamaraDeputadosResponse {
+  dados?: CamaraDeputado[]
+  links?: CamaraLink[]
+}
+
+app.get('/api/camara/deputados', async (c) => {
+  try {
+    const q = c.req.query()
+
+    const pagina = Math.max(1, Number(q.pagina) || 1)
+    const itens = clampItens(q.itens, 20)
+
+    const params = new URLSearchParams({
+      ordem: 'ASC',
+      ordenarPor: 'nome',
+      pagina: String(pagina),
+      itens: String(itens)
+    })
+
+    if (q.nome) {
+      params.set('nome', q.nome)
+    }
+
+    if (q.partido) {
+      params.set('siglaPartido', q.partido.toUpperCase())
+    }
+
+    if (q.uf) {
+      params.set('siglaUf', q.uf.toUpperCase())
+    }
+
+    const data = await fetchJson(
+      `${CAMARA}/deputados?${params}`
+    ) as CamaraDeputadosResponse
+
+    const total = Number(data.dados?.length ?? 0)
+
+    // A API da Câmara envia X-Total-Count no cabeçalho,
+    // mas fetchJson retorna somente o JSON.
+    // Por isso usamos os links da própria resposta.
+
+    const links = Array.isArray(data.links)
+      ? data.links
+      : []
+
+    const ultimoLink = links.find(
+      (link) => link.rel === 'last'
+    )
+
+    const primeiroLink = links.find(
+      (link) => link.rel === 'first'
+    )
+
+    const proximoLink = links.find(
+      (link) => link.rel === 'next'
+    )
+
+    const extrairParametro = (
+      href: string | undefined,
+      nome: string
+    ): number | null => {
+      if (!href) {
+        return null
+      }
+
+      try {
+        const url = new URL(href)
+        const valor = url.searchParams.get(nome)
+
+        return valor ? Number(valor) : null
+      } catch {
+        return null
+      }
+    }
+
+    const totalPaginas =
+      extrairParametro(
+        ultimoLink?.href,
+        'pagina'
+      ) ??
+      (
+        proximoLink
+          ? pagina + 1
+          : pagina
+      )
+
+    const temAnterior = pagina > 1
+    const temProxima = Boolean(proximoLink)
+
+    return c.json({
+      ...data,
+      pagina,
+      itens,
+      total,
+      totalPaginas,
+      temAnterior,
+      temProxima,
+      primeiroLink: primeiroLink?.href ?? null,
+      ultimoLink: ultimoLink?.href ?? null
+    })
+
+  } catch (err) {
+    return apiError(
+      c,
+      err,
+      'Erro ao buscar deputados'
+    )
+  }
+})
+
+
+
+/*
+app.get('/api/camara/deputados', async (c) => {
+  try {
+    const q = c.req.query()
+
+    const pagina = Math.max(1, Number(q.pagina) || 1)
+    const itens = clampItens(q.itens, 20)
+
+    const params = new URLSearchParams({
+      ordem: 'ASC',
+      ordenarPor: 'nome',
+      pagina: String(pagina),
+      itens: String(itens)
+    })
+
+    if (q.nome) params.set('nome', q.nome)
+    if (q.partido) params.set('siglaPartido', q.partido.toUpperCase())
+    if (q.uf) params.set('siglaUf', q.uf.toUpperCase())
+
+    const data = await fetchJson(`${CAMARA}/deputados?${params}`)
+
+    const total = Number(data?.dados?.length ?? 0)
+
+    // A API da Câmara envia X-Total-Count no cabeçalho,
+    // mas fetchJson retorna somente o JSON. Por isso, nesta etapa
+    // usamos a informação disponível nos links da própria resposta.
+    const links = Array.isArray(data?.links) ? data.links : []
+
+    const ultimoLink = links.find((link: any) => link.rel === 'last')
+    const primeiroLink = links.find((link: any) => link.rel === 'first')
+    const proximoLink = links.find((link: any) => link.rel === 'next')
+
+    const extrairParametro = (href: string | undefined, nome: string): number | null => {
+      if (!href) return null
+
+      try {
+        const url = new URL(href)
+        const valor = url.searchParams.get(nome)
+        return valor ? Number(valor) : null
+      } catch {
+        return null
+      }
+    }
+
+    const totalPaginas =
+      extrairParametro(ultimoLink?.href, 'pagina') ??
+      (proximoLink
+        ? pagina + 1
+        : pagina)
+
+    const temAnterior = pagina > 1
+    const temProxima = Boolean(proximoLink)
+
+    return c.json({
+      ...data,
+      pagina,
+      itens,
+      total,
+      totalPaginas,
+      temAnterior,
+      temProxima,
+      primeiroLink: primeiroLink?.href ?? null,
+      ultimoLink: ultimoLink?.href ?? null
+    })
+  } catch (err) {
+    return apiError(c, err, 'Erro ao buscar deputados')
+  }
+})
+*/
+
+
+/*versao 20260917-1450 (funcionando)
 app.get('/api/camara/deputados', async (c) => {
   try {
     const q = c.req.query()
@@ -685,10 +886,12 @@ app.get('/api/camara/deputados', async (c) => {
     params.set('itens', String(clampItens(q.itens, 20)))
 
     return c.json(await fetchJson(`${CAMARA}/deputados?${params}`))
+
   } catch (err) {
     return apiError(c, err, 'Erro ao buscar deputados')
   }
 })
+*/
 
 // Detalhe cadastral de um deputado (modal "Detalhes" no front-end)
 app.get('/api/camara/deputados/:id', async (c) => {
@@ -944,51 +1147,6 @@ app.get('/api/camara/votacoes/:id/votos', async (c) => {
     return apiError(c, err, 'Erro ao buscar votos da votação')
   }
 })
-/*
-app.get('/api/camara/votacoes/:id/votos', async (c) => {
-  const id = c.req.param('id')
-  try {
-    const votos: any[] = []
-    let pagina = 1
-    let ultima = Infinity
-    const MAX_PAGINAS = 10
-
-    while (pagina <= ultima && pagina <= MAX_PAGINAS) {
-      const data: any = await fetchJson(
-        `${CAMARA}/votacoes/${encodeURIComponent(id)}/votos?itens=100&ordem=ASC&ordenarPor=nome&pagina=${pagina}`,
-        { retries: 4 }
-      )
-      const batch = asArray(data.dados)
-      votos.push(
-        ...batch.map((v: any) => ({
-          nome: v.deputado_?.nome,
-          partido: v.deputado_?.siglaPartido,
-          uf: v.deputado_?.siglaUf,
-          voto: v.tipoVoto,
-          urlFoto: v.deputado_?.urlFoto
-        }))
-      )
-
-      const last = asArray(data.links).find((l: any) => l.rel === 'last')
-      if (last) {
-        try {
-          const p = Number(new URL(last.href).searchParams.get('pagina'))
-          ultima = Number.isFinite(p) && p > 0 ? p : pagina
-        } catch { ultima = pagina }
-      } else {
-        ultima = pagina
-      }
-
-      if (!batch.length) break
-      pagina++
-    }
-
-    return c.json({ id: Number(id), total: votos.length, dados: votos })
-  } catch (err) {
-    return apiError(c, err, 'Erro ao buscar votos da votação')
-  }
-})
-*/
 
 /* ============================== SENADO FEDERAL ============================= */
 
@@ -1158,59 +1316,6 @@ app.get('/api/senado/materias', async (c) => {
     )
   }
 })
-
-/*Codigo original
-app.get('/api/senado/materias', async (c) => {
-  try {
-    const ano = c.req.query('ano') || String(new Date().getFullYear())
-    const tipo = (c.req.query('tipo') || 'PLS').toUpperCase()
-
-    let lista: any[] = []
-
-    try {
-      const data: any = await fetchJson(
-        `${SENADO}/materia/pesquisa/lista.json?sigla=${encodeURIComponent(tipo)}&ano=${encodeURIComponent(ano)}`,
-        { ttl: 10 * 60_000, retries: 3, timeoutMs: 30_000 }
-      )
-      lista = asArray(
-        data?.PesquisaBasicaMateria?.Materias?.Materia ??
-        data?.Materias?.Materia
-      )
-    } catch (jsonErr) {
-      console.warn('materias: fallback para XML', jsonErr)
-      const xml = await fetchText(
-        `${SENADO}/materia/pesquisa/lista?sigla=${encodeURIComponent(tipo)}&ano=${encodeURIComponent(ano)}`,
-        30_000
-      )
-      const json = xmlParser.parse(xml)
-      lista = asArray(json?.PesquisaBasicaMateria?.Materias?.Materia)
-    }
-
-    const materias = lista.map((m: any) => {
-      const ident = m.IdentificacaoMateria ?? {}
-      const basicos = m.DadosBasicosMateria ?? {}
-      const autuacoes = asArray(m.SituacaoAtual?.Autuacoes?.Autuacao)
-      const situacao = autuacoes[0]?.Situacao?.DescricaoSituacao ?? ''
-
-      return {
-        codigo: String(ident.CodigoMateria ?? ''),
-        sigla: ident.SiglaSubtipoMateria ?? '',
-        numero: String(ident.NumeroMateria ?? ''),
-        ano: String(ident.AnoMateria ?? ''),
-        ementa: basicos.EmentaMateria ?? '',
-        dataApresent: basicos.DataApresentacao ?? '',
-        situacao: String(situacao),
-        urlDetalhe: m['@_UrlDetalheMateria'] ?? m.UrlDetalheMateria ?? ''
-      }
-    }).filter((m: any) => m.codigo || m.numero)
-
-    return c.json({ total: materias.length, materias })
-  } catch (err) {
-    return apiError(c, err, 'Erro ao buscar matérias')
-  }
-})
-*/
-
 
 
 
